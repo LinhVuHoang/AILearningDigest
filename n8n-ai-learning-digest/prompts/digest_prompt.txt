@@ -1,0 +1,10 @@
+Dữ liệu RSS:
+{{ JSON.stringify($json.articles) }}
+Chỉ trả về đúng định dạng sau:
+
+Tin tức AI mới ngày hôm nay
+
+Tin: [title]
+Link: [link]
+
+Không giải thích, không thêm nội dung khác.

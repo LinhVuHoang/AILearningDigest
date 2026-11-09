@@ -1,0 +1,253 @@
+{
+  "name": "My workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "url": "https://huggingface.co/blog/feed.xml",
+        "options": {
+          "customFields": "",
+          "ignoreSSL": false
+        }
+      },
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.2,
+      "position": [
+        -272,
+        -16
+      ],
+      "id": "ab346a37-ff1e-47b5-bac8-135e6092eb6a",
+      "name": "RSS Read",
+      "alwaysOutputData": false,
+      "retryOnFail": false
+    },
+    {
+      "parameters": {
+        "language": "pythonNative",
+        "pythonCode": "articles = []\n\nfor item in _items:\n    data = item[\"json\"]\n\n    iso_date = data.get(\"isoDate\", \"\")\n\n    if not iso_date:\n        continue\n\n    articles.append({\n        \"title\": data.get(\"title\", \"\"),\n        \"link\": data.get(\"link\", \"\"),\n        \"pubDate\": data.get(\"pubDate\", \"\"),\n        \"isoDate\": iso_date\n    })\n\nif not articles:\n    return [{\"json\": {\"articles\": []}}]\n\n# Lấy thời gian mới nhất\nlatest_date = max(article[\"isoDate\"][:10] for article in articles)\n\n# Lấy tất cả bài có cùng thời gian mới nhất\nlatest_articles = []\n\nfor article in articles:\n    if article[\"isoDate\"][:10] == latest_date:\n        latest_articles.append({\n            \"title\": article[\"title\"],\n            \"link\": article[\"link\"],\n            \"pubDate\": article[\"pubDate\"]\n        })\n\nreturn [\n    {\n        \"json\": {\n            \"articles\": latest_articles\n        }\n    }\n]"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -96,
+        -64
+      ],
+      "id": "3990a05c-596f-42ce-bfb5-26499d3c5c31",
+      "name": "Code in Python"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "models/gemini-3.1-flash-lite-preview",
+          "mode": "list",
+          "cachedResultName": "Gemini 3.1 Flash Lite Preview"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Dữ liệu RSS:\n{{ JSON.stringify($json.articles) }}\nChỉ trả về đúng định dạng sau:\n\nTin tức AI mới ngày hôm nay\n\nTin: [title]\nLink: [link]\n\nKhông giải thích, không thêm nội dung khác.",
+              "role": "=user"
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1.2,
+      "position": [
+        592,
+        -112
+      ],
+      "id": "bc8f6403-a640-42e7-8984-9542f47785de",
+      "name": "Message a model",
+      "alwaysOutputData": false,
+      "credentials": {
+        "googlePalmApi": {
+          "id": "m0Np2vIwwIkXk1jg",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "860950990",
+        "text": "={{ $json.content.parts[0].text }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        912,
+        -112
+      ],
+      "id": "9498f302-9582-4e0c-a9a8-b511be36d0c4",
+      "name": "Send a text message",
+      "webhookId": "249b8232-c7b2-4928-9f00-79fc031391d8",
+      "credentials": {
+        "telegramApi": {
+          "id": "ABeH1jRc7t6eQ5uv",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH candidates AS (\n    SELECT title, link\n    FROM jsonb_to_recordset($1::jsonb)\n    AS x(title TEXT, link TEXT)\n),\ninserted AS (\n    INSERT INTO rss_articles (title, link)\n    SELECT DISTINCT ON (link) title, link\n    FROM candidates\n    WHERE title IS NOT NULL\n      AND link IS NOT NULL\n    ON CONFLICT (link) DO NOTHING\n    RETURNING title, link\n)\nSELECT\n    CASE\n        WHEN COUNT(*) > 0 THEN 'NEW'\n        ELSE 'NONE'\n    END AS status,\n    COALESCE(\n        jsonb_agg(\n            jsonb_build_object(\n                'title', title,\n                'link', link\n            )\n        ),\n        '[]'::jsonb\n    ) AS articles\nFROM inserted;",
+        "options": {
+          "queryReplacement": "={{ [JSON.stringify($json.articles)] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.8,
+      "position": [
+        192,
+        32
+      ],
+      "id": "f2592011-76e0-4f6d-8811-c9e0457d3927",
+      "name": "Execute a SQL query",
+      "credentials": {
+        "postgres": {
+          "id": "UDFGcTBAHWAIxz2r",
+          "name": "Postgres account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 4
+          },
+          "conditions": [
+            {
+              "id": "c9cb1c7f-c6e4-4cdb-ab87-20eb094a8549",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "NEW",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.4,
+      "position": [
+        416,
+        32
+      ],
+      "id": "b0585441-6243-4910-98f8-3032c8f6eab5",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        -496,
+        -16
+      ],
+      "id": "9b11c6ff-75eb-4685-ba01-81739f1ab138",
+      "name": "Schedule Trigger"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "RSS Read": {
+      "main": [
+        [
+          {
+            "node": "Code in Python",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in Python": {
+      "main": [
+        [
+          {
+            "node": "Execute a SQL query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Message a model": {
+      "main": [
+        [
+          {
+            "node": "Send a text message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute a SQL query": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Message a model",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "RSS Read",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true
+  },
+  "versionId": "c323ff8b-3461-4ece-9b27-20f49eb35d25",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "6ffef7835c3055f552dc8ba8f20f3cf18496a493d4c9729ed3c1f54a703ab3db"
+  },
+  "nodeGroups": [],
+  "id": "VYJkzvRxvh2yUjmA",
+  "tags": []
+}
